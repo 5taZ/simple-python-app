@@ -1,68 +1,66 @@
 pipeline {
     agent any
 
-    // 1. Параметризация (Требование "Отлично")
+    // 1. Параметризованная сборка
     parameters {
-        string(name: 'STUDENT_NAME', defaultValue: 'Иванов Иван', description: 'ФИО студента')
-        choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'production'], description: 'Среда развертывания')
+        string(name: 'STUDENT_NAME', defaultValue: 'Иванов Иван', description: 'Ваше ФИО')
+        choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'production'], description: 'Среда')
         booleanParam(name: 'RUN_TESTS', defaultValue: true, description: 'Запускать тесты')
     }
 
     environment {
-        // Укажите ВАШ логин от Docker Hub вместо yourdockerhub
-        DOCKER_REGISTRY = 'docker.io'
-        DOCKER_IMAGE = "stasyfreak/student-app:${BUILD_NUMBER}" 
+        // ВАЖНО: Замените на ваши данные!
+        DOCKER_USER = 'stasyfreak'
+        GITHUB_USER = '5taZ'
+        
+        DOCKER_IMAGE = "${DOCKER_USER}/student-app:${BUILD_NUMBER}"
         CONTAINER_NAME = "student-app-${params.ENVIRONMENT}"
-        // Порты для разных сред во избежание конфликтов
-        DEV_PORT = '5000'
-        STAGING_PORT = '5001'
-        PROD_PORT = '8080'
     }
 
     stages {
         stage('Checkout') {
             steps {
-                echo 'Клонирование репозитория...'
+                cleanWs()
                 checkout scm
             }
         }
 
+        // 2 и 3. Условные этапы и Unit + Integration тесты
         stage('Tests') {
-            when {
-                expression { params.RUN_TESTS == true }
-            }
-            steps {
-                echo 'Настройка окружения Python и запуск тестов...'
-                sh '''
-                    python3 -m venv venv
-                    . venv/bin/activate
-                    pip install --upgrade pip
-                    pip install -r requirements.txt
-                    python -m unittest test_app.py -v
-                '''
-            }
-            post {
-                success {
-                    // Создаем фиктивный xml для JUnit плагина, чтобы он работал (опционально)
-                    echo 'Тесты успешно пройдены!'
+            when { expression { params.RUN_TESTS == true } }
+            stages {
+                stage('Unit Tests') {
+                    steps {
+                        echo 'Запуск Unit тестов...'
+                        sh '''
+                            python3 -m venv venv
+                            . venv/bin/activate
+                            pip install -r requirements.txt
+                            python3 -m unittest test_app.py -v
+                        '''
+                    }
+                }
+                stage('Integration Tests') {
+                    steps {
+                        echo 'Запуск интеграционных тестов (заглушка)...'
+                    }
                 }
             }
         }
 
+        // 4. Сборка Docker-образа
         stage('Build Docker Image') {
             steps {
-                echo 'Сборка Docker образа...'
                 script {
                     dockerImage = docker.build("${DOCKER_IMAGE}")
                 }
             }
         }
 
+        // 5. Push образа в Docker Hub
         stage('Push to Registry') {
             steps {
-                echo 'Публикация образа в Docker Hub...'
                 script {
-                    // Используем ID credentials: docker-hub-credentials (убедитесь, что создали его в Jenkins)
                     docker.withRegistry('', 'docker-hub-credentials') {
                         dockerImage.push()
                         dockerImage.push('latest')
@@ -71,18 +69,13 @@ pipeline {
             }
         }
 
+        // 6. Deploy в dev/staging без подтверждения
         stage('Deploy to Dev') {
             when { expression { params.ENVIRONMENT == 'dev' } }
             steps {
-                echo "Развертывание в DEV..."
                 script {
                     sh "docker rm -f ${CONTAINER_NAME} || true"
-                    sh """
-                        docker run -d --name ${CONTAINER_NAME} \
-                        -p ${DEV_PORT}:5000 \
-                        -e STUDENT_NAME='${params.STUDENT_NAME} (DEV)' \
-                        ${DOCKER_IMAGE}
-                    """
+                    sh "docker run -d --name ${CONTAINER_NAME} -p 8081:5000 -e STUDENT_NAME='${params.STUDENT_NAME} (DEV)' ${DOCKER_IMAGE}"
                 }
             }
         }
@@ -90,100 +83,57 @@ pipeline {
         stage('Deploy to Staging') {
             when { expression { params.ENVIRONMENT == 'staging' } }
             steps {
-                echo "Развертывание в STAGING..."
                 script {
                     sh "docker rm -f ${CONTAINER_NAME} || true"
-                    sh """
-                        docker run -d --name ${CONTAINER_NAME} \
-                        -p ${STAGING_PORT}:5000 \
-                        -e STUDENT_NAME='${params.STUDENT_NAME} (STAGING)' \
-                        ${DOCKER_IMAGE}
-                    """
+                    sh "docker run -d --name ${CONTAINER_NAME} -p 8082:5000 -e STUDENT_NAME='${params.STUDENT_NAME} (STAGING)' ${DOCKER_IMAGE}"
                 }
             }
         }
 
-        // 2. Условный этап с подтверждением (Требование "Отлично")
+        // 7. Подтверждение перед Production
         stage('Approve Production') {
             when { expression { params.ENVIRONMENT == 'production' } }
             steps {
-                script {
-                    def userInput = input(
-                        id: 'DeployProd', 
-                        message: 'Подтвердите развертывание в PRODUCTION?', 
-                        ok: 'Да, развернуть',
-                        parameters: [
-                            string(name: 'PRODUCTION_VERSION', defaultValue: "v1.0.${BUILD_NUMBER}", description: 'Версия релиза (Git Tag)')
-                        ]
-                    )
-                    env.RELEASE_TAG = userInput
-                }
-                echo "Развертывание в PRODUCTION одобрено!"
+                input message: "Подтвердите развертывание в PRODUCTION?", ok: "Развернуть"
             }
         }
 
         stage('Deploy to Production') {
             when { expression { params.ENVIRONMENT == 'production' } }
             steps {
-                echo "Развертывание в PROD..."
                 script {
                     sh "docker rm -f ${CONTAINER_NAME} || true"
-                    sh """
-                        docker run -d --name ${CONTAINER_NAME} \
-                        -p ${PROD_PORT}:5000 \
-                        -e STUDENT_NAME='${params.STUDENT_NAME} (PROD)' \
-                        ${DOCKER_IMAGE}
-                    """
+                    sh "docker run -d --name ${CONTAINER_NAME} -p 8083:5000 -e STUDENT_NAME='${params.STUDENT_NAME} (PROD)' ${DOCKER_IMAGE}"
                 }
             }
         }
 
-        // 3. Тегирование версий в Git (Требование "Отлично")
-        stage('Tag Release in GitHub') {
+        // 8. Создание Git-тега при релизе
+        stage('Tag Release') {
             when { expression { params.ENVIRONMENT == 'production' } }
             steps {
-                echo "Создание Git тега ${env.RELEASE_TAG}..."
-                withCredentials([usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'GIT_PASSWORD', usernameVariable: 'GIT_USERNAME')]) {
+                withCredentials([usernamePassword(credentialsId: 'github-credentials', passwordVariable: 'GIT_PASS', usernameVariable: 'GIT_USER')]) {
                     sh """
                         git config user.email "jenkins@example.com"
-                        git config user.name "Jenkins CI"
-                        git tag -a ${env.RELEASE_TAG} -m "Release ${env.RELEASE_TAG} deployed to Production"
-                        git push https://${GIT_USERNAME}:${GIT_PASSWORD}@github.com/5taZ/simple-python-app.git ${env.RELEASE_TAG}
+                        git config user.name "Jenkins"
+                        git tag -a v1.0.${BUILD_NUMBER} -m "Release v1.0.${BUILD_NUMBER}"
+                        git push https://${GIT_USER}:${GIT_PASS}@github.com/${GITHUB_USER}/simple-python-app.git v1.0.${BUILD_NUMBER}
                     """
                 }
             }
         }
     }
 
-    // 4. Отправка уведомлений и очистка (Требование "Отлично")
+    // 9 и 10. Уведомление и очистка рабочего пространства
     post {
         always {
-            echo 'Очистка рабочего пространства...'
             cleanWs()
         }
         success {
-            echo "Пайплайн успешно выполнен для ${params.ENVIRONMENT}!"
-            // Пример уведомления по Email (требует настройки SMTP в Jenkins)
-            /*
-            emailext (
-                to: 'your-email@example.com',
-                subject: "SUCCESS: Job '${env.JOB_NAME} [${env.BUILD_NUMBER}]'",
-                body: "Сборка успешна. Среда: ${params.ENVIRONMENT}"
-            )
-            */
-            
-            // ПРОСТОЙ ВАРИАНТ ДЛЯ СДАЧИ (Telegram). 
-            // Создайте бота в @BotFather, узнайте свой CHAT_ID и раскомментируйте:
-            /*
-            sh """
-                curl -s -X POST https://api.telegram.org/bot<ВАШ_ТОКЕН>/sendMessage \
-                -d chat_id=<ВАШ_CHAT_ID> \
-                -d text="✅ Сборка ${env.JOB_NAME} #${env.BUILD_NUMBER} успешно развернута в ${params.ENVIRONMENT}!"
-            """
-            */
+            echo "✅ УСПЕШНО: Пайплайн завершен для среды ${params.ENVIRONMENT}!"
         }
         failure {
-            echo "❌ Пайплайн завершился с ошибкой. Проверьте логи."
+            echo "❌ ОШИБКА: Пайплайн упал. Проверьте логи."
         }
     }
 }
