@@ -9,9 +9,13 @@ pipeline {
     }
 
     environment {
-        // ВАЖНО: Замените на ваши данные!
+        // Ваши учетные данные
         DOCKER_USER = 'stasyfreak'
         GITHUB_USER = '5taZ'
+        
+        // Настройки Telegram
+        TG_TOKEN = '8577603810:AAEymV6ES9CWJP-KMzdmd9QvzVi4RtJi8ns'
+        TG_CHAT_ID = '1113850555' // <--- ВАЖНО: ЗАМЕНИТЕ ЭТИ ЦИФРЫ НА СВОЙ ЛИЧНЫЙ ID ОТ @userinfobot
         
         DOCKER_IMAGE = "${DOCKER_USER}/student-app:${BUILD_NUMBER}"
         CONTAINER_NAME = "student-app-${params.ENVIRONMENT}"
@@ -131,9 +135,19 @@ pipeline {
         }
         success {
             echo "✅ УСПЕШНО: Пайплайн завершен для среды ${params.ENVIRONMENT}!"
+            sh """
+                curl -s -X POST https://api.telegram.org/bot${TG_TOKEN}/sendMessage \
+                -d chat_id=${TG_CHAT_ID} \
+                -d text="✅ УСПЕШНО: Сборка #${env.BUILD_NUMBER} развернута в ${params.ENVIRONMENT}!"
+            """
         }
         failure {
             echo "❌ ОШИБКА: Пайплайн упал. Проверьте логи."
+            sh """
+                curl -s -X POST https://api.telegram.org/bot${TG_TOKEN}/sendMessage \
+                -d chat_id=${TG_CHAT_ID} \
+                -d text="❌ ОШИБКА: Сборка #${env.BUILD_NUMBER} упала!"
+            """
         }
     }
 }
