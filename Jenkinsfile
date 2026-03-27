@@ -14,8 +14,8 @@ pipeline {
         GITHUB_USER = '5taZ'
         
         // Настройки Telegram
-        TG_TOKEN = '8577603810:AAEymV6ES9CWJP-KMzdmd9QvzVi4RtJi8ns'
-        TG_CHAT_ID = '1113850555' // <--- ВАЖНО: ЗАМЕНИТЕ ЭТИ ЦИФРЫ НА СВОЙ ЛИЧНЫЙ ID ОТ @userinfobot
+        TG_TOKEN = '8420744494:AAEeQyOxHsTa1H7iIC0EgC4kYv2l4uundW8'
+        TG_CHAT_ID = '1178986843' // <--- ВАЖНО: ЗАМЕНИТЕ ЭТИ ЦИФРЫ НА СВОЙ ЛИЧНЫЙ ID ОТ @userinfobot
         
         DOCKER_IMAGE = "${DOCKER_USER}/student-app:${BUILD_NUMBER}"
         CONTAINER_NAME = "student-app-${params.ENVIRONMENT}"
